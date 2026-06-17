@@ -1,1 +1,1 @@
-# ipxeboot# nb_fbinst
+ nb_fbinst
