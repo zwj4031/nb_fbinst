@@ -1,0 +1,59 @@
+name: Build and Auto-Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up MSVC Developer Command Prompt
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: amd64_x86
+
+    - name: Restore NuGet Packages
+      run: |
+        nuget restore
+
+    - name: Build project via build.bat
+      shell: cmd
+      run: |
+        call build.bat
+
+    - name: Prepare Release Assets
+      shell: bash
+      run: |
+        mkdir -p release_assets
+        if [ -f "dist/x64/fbinst.exe" ]; then
+          cp dist/x64/fbinst.exe release_assets/fbinst_x64.exe
+        fi
+        if [ -f "dist/x86/fbinst.exe" ]; then
+          cp dist/x86/fbinst.exe release_assets/fbinst_x86.exe
+        fi
+
+    - name: Create GitHub Release and Upload Assets
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG_NAME="${{ github.ref_name }}"
+        if [ "${{ github.ref_type }}" != "tag" ]; then
+          TAG_NAME="manual-build-${{ github.run_number }}"
+        fi
+        
+        if [ "$(ls -A release_assets)" ]; then
+          gh release create "$TAG_NAME" release_assets/* --generate-notes --title "Release $TAG_NAME"
+        else
+          echo "No release assets found. Skipping release."
+        fi
