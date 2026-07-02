@@ -1,4 +1,4 @@
-#ifndef FBFS_H
+﻿#ifndef FBFS_H
 #define FBFS_H
 
 #include <stddef.h>
@@ -224,6 +224,8 @@ int fbfs_export_pbr(struct fbfs_disk *disk, uint32_t slot, const char *file_path
 int fbfs_backup_sectors(struct fbfs_disk *disk, const char *file_path, uint32_t lba, uint32_t sectors);
 int fbfs_restore_sectors(struct fbfs_disk *disk, const char *file_path, uint32_t lba, uint32_t sectors, int keep_dpt, int keep_bpb);
 int fbfs_partition_op(struct fbfs_disk *disk, uint32_t slot, const char *op, const char *param);
+int fbfs_query_mbr(struct fbfs_disk *disk, char *type_name, size_t max_len);
+int fbfs_query_pbr(struct fbfs_disk *disk, uint32_t slot, char *type_name, size_t max_len);
 
 uint32_t fbfs_parse_size(const char *text, int *ok);
 uint32_t fbfs_file_time(const char *path);

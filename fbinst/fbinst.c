@@ -1,4 +1,4 @@
-#define _CRT_SECURE_NO_WARNINGS
+﻿#define _CRT_SECURE_NO_WARNINGS
 
 #include "../libfbfs/fbfs.h"
 
@@ -277,16 +277,19 @@ help(void)
 		"    --fb-version 1.6|1.7\tSet archive version\n"
 		"  import-mbr FILE [SEC]\tImport custom MBR from a file (restores bootstrap code)\n"
 		"  import-pbr SLOT FILE\tImport custom partition boot record (PBR) to SLOT (1-4)\n"
-		"  write-mbr TYPE\tWrite high-compatibility built-in MBR (TYPE: nt60, nt52)\n"
-		"  write-pbr SLOT TYPE\tWrite high-compatibility PBR to SLOT (1-4) (TYPE: bootmgr, ntldr)\n\n"
+		"  write-mbr TYPE\tWrite high-compatibility built-in MBR\n"
+		"                \t  (TYPE: nt60, nt52, grub4dos, syslinux, rufus, ultraiso, wee)\n"
+		"  write-pbr SLOT TYPE\tWrite high-compatibility PBR to SLOT (1-4) (TYPE: bootmgr, ntldr, grub4dos)\n\n"
 		"  BOOTICE Emulation Switches (Supports '/' to allow drop-in legacy script integration):\n"
 		"    /device=DISKn[:part]\tSpecify target disk (supports '1', '(hd1)', '(hd:1)' formats) and slot\n"
 		"    /mbr\t\tPerform MBR level operations\n"
 		"    /pbr\t\tPerform PBR level operations\n"
+		"    /query\t\tQuery boot record type (requires /mbr or /pbr)\n"
 		"    /install\t\tWrite built-in boot record (needs /type=)\n"
 		"    /backup\t\tBackup boot record to file (needs /file=)\n"
 		"    /restore\t\tImport boot record from file (needs /file=)\n"
-		"    /type=TYPE\t\tBoot record type (nt60, nt52, bootmgr, ntldr)\n"
+		"    /type=TYPE\t\tMBR: nt60, nt52, grub4dos, syslinux, rufus, ultraiso, wee\n"
+		"              \t\tPBR: bootmgr, ntldr, grub4dos\n"
 		"    /file=FILE\t\tSource backup binary file path\n"
 		"    /sectors=NUM\tSectors to restore for MBR\n"
 		"    /keep_bpb\t\tRetain original BIOS Parameter Block on restore\n\n"
@@ -303,6 +306,10 @@ help(void)
 		"      fbinst /device=1:0 /pbr /backup /file=C:\\path\\to\\pbr_bak.bin /sectors=1\n\n"
 		"      # Restore Partition Boot Record from file, keeping BPB metadata intact:\n"
 		"      fbinst /device=1:0 /pbr /restore /file=C:\\path\\to\\pbr.bin /keep_bpb\n\n"
+		"      # Query the MBR type of Physical Disk 1:\n"
+		"      fbinst /device=1 /mbr /query\n\n"
+		"      # Query the PBR type of Physical Disk 1, Partition index 0 (Slot 1):\n"
+		"      fbinst /device=1:0 /pbr /query\n\n"
 		"Examples:\n"
 		"  # Step 1: List all disks in the system and find your U-disk number\n"
 		"  fbinst --list\n\n"
@@ -1523,7 +1530,9 @@ static int
 is_read_only_command(const char *command)
 {
 	return !strcmp(command, "info") || !strcmp(command, "cat") ||
-		!strcmp(command, "cat-menu") || !strcmp(command, "export");
+		!strcmp(command, "cat-menu") || !strcmp(command, "export") ||
+		!strcmp(command, "export-mbr") || !strcmp(command, "export-pbr") ||
+		!strcmp(command, "backup-sectors");
 }
 
 int
@@ -1532,10 +1541,11 @@ main(int argc, char **argv)
 	int bootice_mode = 0;
 	int j;
 	for (j = 1; j < argc; j++) {
-		if (argv[j][0] == '/' || !fbinst_strcasecmp(argv[j], "import-mbr") || 
-			!fbinst_strcasecmp(argv[j], "import-pbr") || 
-			!fbinst_strcasecmp(argv[j], "write-mbr") || 
-			!fbinst_strcasecmp(argv[j], "write-pbr")) {
+		if (!fbinst_strncasecmp(argv[j], "/device=", 8) || 
+			!fbinst_strcasecmp(argv[j], "/mbr") || 
+			!fbinst_strcasecmp(argv[j], "/pbr") || 
+			!fbinst_strcasecmp(argv[j], "/sectors") || 
+			!fbinst_strcasecmp(argv[j], "/partitions")) {
 			bootice_mode = 1;
 			break;
 		}
@@ -1550,6 +1560,7 @@ main(int argc, char **argv)
 		int is_install = 0;
 		int is_restore = 0;
 		int is_backup = 0;
+		int is_query = 0;
 		int is_sectors_mode = 0;
 		int is_partitions_mode = 0;
 		uint32_t bootice_slot = 1;
@@ -1605,6 +1616,8 @@ main(int argc, char **argv)
 				bootice_device = dev_name;
 			} else if (!fbinst_strcasecmp(argv[j], "/mbr")) {
 				is_mbr = 1;
+			} else if (!fbinst_strcasecmp(argv[j], "/query")) {
+				is_query = 1;
 			} else if (!fbinst_strcasecmp(argv[j], "/pbr")) {
 				is_pbr = 1;
 			} else if (!fbinst_strcasecmp(argv[j], "/sectors")) {
@@ -1670,7 +1683,15 @@ main(int argc, char **argv)
 			check(fbfs_disk_open(bootice_device, disk_flags, &disk_inst));
 
 			if (is_mbr) {
-				if (is_install && bootice_type) {
+				if (is_query) {
+					char type_name[128];
+					if (fbfs_query_mbr(disk_inst, type_name, sizeof(type_name)) == FBFS_OK) {
+						printf("MBR Type of %s: %s\n", bootice_device, type_name);
+					} else {
+						printf("Failed to query MBR type for %s\n", bootice_device);
+					}
+				
+				} else if (is_install && bootice_type) {
 					check(fbfs_write_mbr(disk_inst, bootice_type));
 					printf("Successfully wrote MBR code (%s) to %s\n", bootice_type, bootice_device);
 				} else if (is_restore && bootice_file) {
@@ -1683,7 +1704,14 @@ main(int argc, char **argv)
 					quit("invalid Bootice parameters for /mbr");
 				}
 			} else if (is_pbr) {
-				if (is_install && bootice_type) {
+				if (is_query) {
+					char type_name[128];
+					if (fbfs_query_pbr(disk_inst, bootice_slot, type_name, sizeof(type_name)) == FBFS_OK) {
+						printf("PBR Type of %s (Slot %u): %s\n", bootice_device, bootice_slot, type_name);
+					} else {
+						printf("Failed to query PBR type for %s (Slot %u)\n", bootice_device, bootice_slot);
+					}
+				} else if (is_install && bootice_type) {
 					check(fbfs_write_pbr(disk_inst, bootice_slot, bootice_type));
 					printf("Successfully wrote PBR code (%s) to %s (Slot %u)\n", bootice_type, bootice_device, bootice_slot);
 				} else if (is_restore && bootice_file) {
